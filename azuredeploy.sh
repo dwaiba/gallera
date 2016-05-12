@@ -329,6 +329,7 @@ echo "Backing up databases..."
 # This section can be copied and repeated to backup multiple databases
 
 DATABASE="ingenico_10_2_prod"
+BACKUP_DIR=/data/data/backup
 
 echo "Dumping ${DATABASE}..."
 mysqldump \-u backupuser \--password=strong_pwd --max_allowed_packet=100M ${DATABASE} | gzip > ${BACKUP_DIR}/backup_${DATABASE}_${DATE}.sql.gz
@@ -337,7 +338,7 @@ echo "Done."
 
 echo "Cleaning dumps older than 7 days..."
 
-find ${SHARE_BACKUP}/* -mtime +7 -delete
+find ${BACKUP_DIR}/* -mtime +7 -delete
 
 echo "Done."
 
