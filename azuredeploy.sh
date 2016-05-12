@@ -8,8 +8,8 @@ if [[ $(id -u) -ne 0 ]] ; then
     exit 1
 fi
 
-if [ $# != 6 ]; then
-    echo "Usage: $0 <MasterHostname> <TemplateBaseUrl> <mountFolder> <numDataDisks> <dockerVer> <dockerComposeVer>"
+if [ $# != 8 ]; then
+    echo "Usage: $0 <MasterHostname> <TemplateBaseUrl> <mountFolder> <numDataDisks> <dockerVer> <dockerComposeVer> <mariadbName> <mariadbPass>"
     exit 1
 fi
 
@@ -22,6 +22,10 @@ MNT_POINT="$3"
 SHARE_HOME=$MNT_POINT/home
 SHARE_DATA=$MNT_POINT/data
 SHARE_BACKUP=$SHARE_DATA/backup
+
+# mariadb
+mariadbName="$7"
+mariadbPass="$8"
 
 numberofDisks="$4"
 dockerVer="$5"
@@ -236,26 +240,30 @@ yum -y install MariaDB-server MariaDB-client galera
 systemctl enable mariadb
 systemctl start mariadb
 
+
 # Setting up MySQL
-mysql -e "UPDATE mysql.user SET Password = PASSWORD('strong_pwd') WHERE User = 'root';"
-mysql -e "CREATE USER 'ingenico-prod'@'%' IDENTIFIED BY 'strong_pwd';"
-mysql -e "CREATE DATABASE ingenico_10_2_prod;"
-mysql -e "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, REFERENCES, INDEX, ALTER, CREATE TEMPORARY TABLES, LOCK TABLES, EXECUTE, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, TRIGGER ON ingenico_10_2_prod.* TO 'ingenico-prod'@'%';"
-mysql -e "CREATE USER 'backupuser'@'localhost' IDENTIFIED BY 'strong_pwd';"
+mysql -e "UPDATE mysql.user SET Password = PASSWORD('$mariadbPass') WHERE User = 'root';"
+mysql -e "CREATE USER 'ingenico-prod'@'%' IDENTIFIED BY '$mariadbPass';"
+mysql -e "CREATE DATABASE $mariadbName;"
+mysql -e "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, REFERENCES, INDEX, ALTER, CREATE TEMPORARY TABLES, LOCK TABLES, EXECUTE, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, TRIGGER ON $mariadbName.* TO 'ingenico-prod'@'%';"
+mysql -e "CREATE USER 'backupuser'@'localhost' IDENTIFIED BY '$mariadbPass';"
 mysql -e "GRANT EVENT, LOCK TABLES, SELECT, SHOW DATABASES ON *.* TO 'backupuser'@'localhost';"
 mysql -e "DROP USER ''@'localhost';"
 mysql -e "DROP USER ''@'$(hostname)';"
 mysql -e "DROP DATABASE test;"
 mysql -e "FLUSH PRIVILEGES;"
 
+rightval="val$mariadbPass"
 # Setting up passwordless login
-cat >>/etc/my.cnf.d/client.cnf <<EOL
+cat <<'EOF' >> /etc/my.cnf.d/client.cnf
 user='root'
-password=strong_pwd
-EOL
+password=${!rightval}
+EOF
 
+wsrep_n_address="val$SERVERIP"
+wsrep_n_name="val$HOSTNAME"
 # Adding to MySQL cluster
-cat >/etc/my.cnf.d/server.cnf <<EOL
+cat <<'EOF' >> /etc/my.cnf.d/server.cnf
 #
 # These groups are read by MariaDB server.
 # Use it for options that only the server (but not clients) should see
@@ -286,8 +294,8 @@ wsrep_on=ON
 wsrep_provider=/usr/lib64/galera/libgalera_smm.so
 wsrep_cluster_address='gcomm://'
 wsrep_cluster_name='ingenico'
-wsrep_node_address='$SERVERIP'
-wsrep_node_name='$HOSTNAME'
+wsrep_node_address='${!wsrep_n_address}'
+wsrep_node_name='${!wsrep_n_name}'
 wsrep_sst_method=rsync
 binlog_format=row
 default_storage_engine=InnoDB
@@ -311,10 +319,13 @@ bind-address=0.0.0.0
 # If you use the same .cnf file for MariaDB of different versions,
 # use this group for options that older servers don't understand
 [mariadb-10.1]
-EOL
+EOF
 
 /usr/bin/galera_new_cluster
 
+DATABASE= "val$mariadbName"
+BACKUP_DIR="val$SHARE_BACKUP"
+backPass="val$mariadbPass"
 # Creating MySQL backup script
 cat <<'EOF' >> /usr/local/bin/backup-databases.sh
 
@@ -328,17 +339,15 @@ echo "Backing up databases..."
 
 # This section can be copied and repeated to backup multiple databases
 
-DATABASE="ingenico_10_2_prod"
-BACKUP_DIR="/data/data/backup"
 
-echo "Dumping ${DATABASE}..."
-mysqldump \-u backupuser \--password=strong_pwd --max_allowed_packet=100M ${DATABASE} | gzip > ${BACKUP_DIR}/backup_${DATABASE}_${DATE}.sql.gz
+echo "Dumping ${!DATABASE}..."
+mysqldump \-u backupuser \--password=${!backPass} --max_allowed_packet=100M ${!DATABASE} | gzip > ${!BACKUP_DIR}/backup_${!DATABASE}_${DATE}.sql.gz
 echo "Done."
 
 
 echo "Cleaning dumps older than 7 days..."
 
-find ${BACKUP_DIR}/* -mtime +7 -delete
+find ${!BACKUP_DIR}/* -mtime +7 -delete
 
 echo "Done."
 
