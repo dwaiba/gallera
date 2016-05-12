@@ -228,7 +228,7 @@ cat >/etc/motd <<EOL
 ####################################################################
 #  MySQL conf           : /etc/my.cnf                              #
 #  MySQL Data dir       : /var/lib/mysql                           #
-#  MySQL Backup dir     : /data/backup                             #
+#  MySQL Backup dir     : $SHARE_BACKUP                             #
 #  Daily Backup (cron)  : /usr/local/bin/backup-databases.sh       #
 ####################################################################
 EOL
