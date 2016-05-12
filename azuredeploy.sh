@@ -21,7 +21,7 @@ TEMPLATE_BASE_URL="$2"
 MNT_POINT="$3"
 SHARE_HOME=$MNT_POINT/home
 SHARE_DATA=$MNT_POINT/data
-SHARE_BACKUP=$MNT_POINT/backup
+SHARE_BACKUP=$SHARE_DATA/backup
 
 numberofDisks="$4"
 dockerVer="$5"
@@ -158,7 +158,6 @@ setup_shares()
 {
     mkdir -p $SHARE_HOME
     mkdir -p $SHARE_DATA
-    mkdir -p $SHARE_BACKUP
 
    # if is_master; then
         #setup_data_disks $SHARE_DATA
@@ -170,6 +169,7 @@ setup_shares()
         systemctl enable nfs-server || echo "Already enabled"
         systemctl start rpcbind || echo "Already enabled"
         systemctl start nfs-server || echo "Already enabled"
+      mkdir -p $SHARE_BACKUP
     #else
     #    echo "master:$SHARE_HOME $SHARE_HOME    nfs4    rw,auto,_netdev 0 0" >> /etc/fstab
     #    echo "master:$SHARE_DATA $SHARE_DATA    nfs4    rw,auto,_netdev 0 0" >> /etc/fstab
@@ -313,30 +313,38 @@ bind-address=0.0.0.0
 [mariadb-10.1]
 EOL
 
-galera_new_cluster
+/usr/bin/galera_new_cluster
 
 # Creating MySQL backup script
-cat >/usr/local/bin/backup-databases.sh <<EOL
+cat <<'EOF' >> /usr/local/bin/backup-databases.sh
+
 #!/bin/bash
 
+
 DATE=`date +%d%m%Y_%H%M`
-BACKUP_DIR="/data/backup"
+
 echo "Backing up databases..."
 
+
 # This section can be copied and repeated to backup multiple databases
+
 DATABASE="ingenico_10_2_prod"
+
 echo "Dumping ${DATABASE}..."
 mysqldump \-u backupuser \--password=strong_pwd --max_allowed_packet=100M ${DATABASE} | gzip > ${BACKUP_DIR}/backup_${DATABASE}_${DATE}.sql.gz
 echo "Done."
 
+
 echo "Cleaning dumps older than 7 days..."
-find ${BACKUP_DIR}/* -mtime +7 -delete
+
+find ${SHARE_BACKUP}/* -mtime +7 -delete
+
 echo "Done."
-EOL
+
+EOF
 chmod +x /usr/local/bin/backup-databases.sh
 }
 
 setup_shares
 install_pkgs
 install_gallera
-
